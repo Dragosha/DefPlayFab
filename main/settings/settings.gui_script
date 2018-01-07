@@ -1,0 +1,399 @@
+local game = require "game.game"
+local si = require "ludobits.m.simple_input"
+local lb = require "main.leaderboard.lb"
+local fb = require "main.fb.fb"
+local txt = require "main.txt"
+local ga = require "googleanalytics.ga"
+local dirtylarry = require "dirtylarry.dirtylarry"
+local jsonlib = require "helper.jsonlib"
+
+--
+local profiler = require "defpro.defoldprofiler"
+local reporter = require "defpro.reporter"
+local function capture()
+	profiler.capture(1, "127.0.0.1", function(frames)
+        --reporter.print_counters_data(frames[1])
+		local stats = reporter.get_counters(frames[1], "%-20s %8d", "DrawCalls", "Instances", "Mem Usage") .. "\n\n"
+		--stats = stats .. "Frame time: " .. frames[1].frame_time .. "\n"
+		gui.set_text(gui.get_node("deb"), stats)
+	end)
+end
+--
+
+local function labelsUpdate(self)
+	gui.set_text(gui.get_node("backtomenu/label"), txt.get.back_to_menu)
+	gui.set_text(gui.get_node("language/label"), txt.get.language)
+	gui.set_text(gui.get_node("rateus/label"), txt.get.rate_us)
+	gui.set_text(gui.get_node("restore/label"), txt.get.restore)
+	gui.set_text(gui.get_node("load/label"), txt.get.cloud_load)
+	gui.set_text(gui.get_node("save/label"), txt.get.cloud_save)
+	gui.set_text(gui.get_node("fb/label"), txt.get.conect_fb)
+	gui.set_text(gui.get_node("title"), txt.get.settings)
+	gui.set_text(gui.get_node("music/label"), game.music and txt.get.music_off or txt.get.music_on)
+	gui.set_text(gui.get_node("sounds/label"), game.sounds and txt.get.sounds_off or txt.get.sounds_on)
+	gui.set_text(gui.get_node("last_save"), txt.get.last_save)
+	if game.animation then
+		gui.play_flipbook(gui.get_node("ani"), "ani_on")
+	else
+		gui.cancel_flipbook(gui.get_node("ani"))
+	end
+end
+
+local function musicTrigg(self)
+	game.music=not game.music
+	self.changed=true
+	if game.music then
+		sound.set_group_gain("music", 0)
+	else
+		sound.set_group_gain("music", 1)
+	end
+	labelsUpdate(self)
+end
+
+local  function soundsTrigg(self)
+	game.sounds=not game.sounds
+	self.changed=true
+	if game.sounds then
+		sound.set_group_gain("master", 0)
+	else
+		sound.set_group_gain("master", 1)
+	end
+	labelsUpdate(self)
+end
+
+local function onexit(self)
+    if self.changed then game.saveFile() end
+    msg.post(game.CONTROLLER, game.CLOSESETTINGS,{lang=self.lang})
+
+
+	if self.restored then
+		if game.currentscene ~= game.GAME then
+			game.loadProxy("#menuproxy")
+		end
+	end
+end
+
+local function onBack(self)
+	onexit(self)
+	game.over=true
+	game.save={}
+	game.loadProxy("#menuproxy")
+end
+
+local function onLanguage(self)
+	si.release()
+	msg.post("/go#languageproxy", "load")
+	--self.go_ids=collectionfactory.create("/go#languagefactory")
+	--print(self.go_ids[1])
+	--pprint(self.go_ids)
+end
+
+local function done(self)
+	gui.set_enabled(gui.get_node("save/button"), false)
+	gui.set_enabled(gui.get_node("saveicon"), false)
+	gui.set_enabled(gui.get_node("load/button"), false)
+	gui.set_enabled(gui.get_node("loadicon"), false)
+	gui.set_enabled(gui.get_node("done"), true)
+end
+
+local function onSave(self)
+	gui.set_enabled(gui.get_node("save/button"), false)
+	gui.set_enabled(gui.get_node("saveicon"), false)
+	local function gotError(error)
+		gui.set_text(gui.get_node("info"), error.errorMessage)
+		gui.set_enabled(gui.get_node("save/button"), true)
+		gui.set_enabled(gui.get_node("saveicon"), true)
+	end
+
+	local save
+	local data=game.saveFile()
+	--data.tutorial=nil
+	data.watchNum=nil
+	data.platform=game.platform
+	data.timestamp=os.time()
+	save=jsonlib.encode(data)
+	print(save)
+	lb.sigIn(
+		function()
+			lb.updateUserData({save=save},
+				function()
+					print("saved successfully")
+					done(self)
+				end,
+				gotError)
+		end,
+		gotError
+	)
+end
+local function preLoad(self)
+	lb.sigIn(
+		function()
+			lb.getUserData(nil,
+				function(result)
+					print("load successfully")
+					local data=result.Data
+					pprint(data)
+					if data.save then
+						local value=json.decode(data.save.Value)
+						self.save=value
+
+						local info=""
+						if value.timestamp then info=info..os.date("%c", value.timestamp) end
+						if value.savedCoins then info=info..string.format(", Coins: %d",value.savedCoins) end
+						gui.set_text(gui.get_node("info"), info)
+						gui.set_enabled(gui.get_node("load/button"), true)
+						gui.set_enabled(gui.get_node("loadicon"), true)
+						gui.set_enabled(gui.get_node("loaddots"), false)
+					else
+						gui.set_text(gui.get_node("info"), txt.get.not_found)
+						gui.set_enabled(gui.get_node("load/button"), false)
+						gui.set_enabled(gui.get_node("loadicon"), false)
+						gui.set_enabled(gui.get_node("loaddots"), false)
+					end
+
+				end,
+				function(error) print(error.errorMessage) end)
+		end,
+		function(error) print(error.errorMessage) end
+	)
+end
+local function onLoad(self)
+	gui.set_enabled(gui.get_node("load/button"), false)
+	gui.set_enabled(gui.get_node("loadicon"), false)
+
+	local function gotError(error)
+		gui.set_text(gui.get_node("info"), error.errorMessage)
+		gui.set_enabled(gui.get_node("load/button"), true)
+		gui.set_enabled(gui.get_node("loadicon"), true)
+	end
+
+	if not self.save then
+	lb.sigIn(
+		function()
+			lb.getUserData(nil,
+				function(result)
+					print("load successfully")
+					local data=result.Data
+					pprint(data)
+					if data.save then
+						local value=json.decode(data.save.Value)
+						self.save=value
+					end
+					done(self)
+				end,
+				gotError)
+		end,
+		gotError
+	)
+	end
+	if self.save then
+		game.loadFile(self.save)
+		done(self)
+		self.changed=true
+	end
+end
+
+local function cloudFb(self)
+	gui.set_enabled(gui.get_node("dots"), false)
+	if facebook and facebook.access_token() then
+		gui.set_enabled(gui.get_node("done"), false)
+		gui.set_enabled(gui.get_node("cloudbox"), false)
+		gui.set_enabled(gui.get_node("cloudfun"), true)
+		gui.set_enabled(gui.get_node("load/button"), false)
+		gui.set_enabled(gui.get_node("loadicon"), false)
+		preLoad(self)
+	else
+		gui.set_enabled(gui.get_node("cloudbox"), true)
+		gui.set_enabled(gui.get_node("cloudfun"), false)
+	end
+end
+
+local function FB_callback(self, result, name)
+	if result then
+		--[[print("FB name:", name)
+		lb.changeName(name, function(result)
+            ---- save
+            game.saveFile()
+        end, function(error)
+			print("error changeName")
+        end)]]--
+		if lb.fb_login then
+			cloudFb(self)
+			return
+		end
+		lb.linkToFB(
+		function()
+			-- first time
+			cloudFb(self)
+		end, function(error)
+			-- LinkedAccountAlreadyClaimed 1012
+			-- AccountAlreadyLinked	1011
+			print("Error linkToFB:", error.errorMessage)
+			pprint(error)
+			if error.errorCode==1012 or error.errorCode==1011 then
+				lb.loginWithFB(
+				function()
+					-- first time
+					cloudFb(self)
+				end, function(error)
+					--InvalidTitleId	1004
+					--InvalidFacebookToken	1013
+					--AccountNotFound	1001
+					--FacebookAPIError	1143
+					--RequestViewConstraintParamsNotAllowed	1303
+					print("Error linkToFB:", error.errorMessage)
+					pprint(error)
+					gui.set_enabled(gui.get_node("dots"), false)
+					gui.set_enabled(gui.get_node("cloudbox"), true)
+		        end)
+			end
+        end)
+	else
+		gui.set_enabled(gui.get_node("dots"), false)
+		gui.set_enabled(gui.get_node("cloudbox"), true)
+	end
+end
+local function onFb(self)
+	fb.login(self, FB_callback)
+	gui.set_enabled(gui.get_node("dots"), true)
+	gui.set_enabled(gui.get_node("cloudbox"), false)
+end
+
+
+
+local function onRate(self)
+	sys.open_url(game.gameurl)
+end
+
+local function onRestote(self)
+	gui.set_enabled(gui.get_node("restore/button"), false)
+	msg.post(game.ADS, game.IAPRESTORE)
+end
+
+local function onAnimation(self)
+	game.animation=not game.animation
+	self.changed=true
+	labelsUpdate(self)
+end
+
+function init(self)
+    print("Settings Init")
+    gui.set_render_order(6)
+    si.acquire()
+    si.register("exit", onexit)
+	si.register("music/button", musicTrigg)
+	si.register("sounds/button", soundsTrigg)
+	si.register("backtomenu/button", onBack)
+	si.register("language/button", onLanguage)
+	si.register("restore/button", onRestote)
+	si.register("rateus/button", onRate)
+	si.register("animation/button", onAnimation)
+
+	--gui.set_enabled(gui.get_node("fb/button"), false)
+
+
+	gui.set_enabled(gui.get_node("dots"), false)
+	--cloudFb(self)
+	if facebook then
+		gui.set_enabled(gui.get_node("cloudbox"), true)
+		gui.set_enabled(gui.get_node("cloudfun"), false)
+		si.register("save/button", onSave)
+		si.register("load/button", onLoad)
+		si.register("fb/button", onFb)
+	else
+		gui.set_enabled(gui.get_node("cloudbox"), false)
+		gui.set_enabled(gui.get_node("cloudfun"), false)
+	end
+
+
+
+    self.exit=gui.get_node("exitbox")
+    local pos=gui.get_position(self.exit)
+    gui.set_position(self.exit, vmath.vector3(pos.x, -200, 0))
+    gui.animate(self.exit, "position.y", pos.y, gui.EASING_OUTBACK, .3, .2)
+
+    self.bg=gui.get_node("bg")
+    local color=gui.get_color(self.bg)
+    gui.set_color(self.bg, vmath.vector4(color.x, color.y, color.z, 0))
+    gui.animate(self.bg, "color", color, gui.EASING_OUTQUAD, .4)
+
+    if game.mainmenu then
+        gui.set_enabled(gui.get_node("backtomenu/button"), false)
+    end
+
+	gui.set_text(gui.get_node("id"), lb.PlayFabId or "-")
+    ----- debug info
+	labelsUpdate(self)
+    --capture()
+
+	ga.get_default_tracker().screenview("settings")
+
+	self.getit=gui.get_node("getit")
+
+	local info = sys.get_sys_info()
+	if info.system_name == "Android" then
+	--- ANDROID
+		gui.set_enabled(self.getit, false)
+	else
+		si.register("getit",function() ga.get_default_tracker().event("session", "getit", "settings", 0) end)
+		gui.set_enabled(gui.get_node("rateus/button"), false)
+		gui.set_enabled(gui.get_node("restore/button"), false)
+	end
+end
+
+function final(self)
+	si.release()
+    si.unregister()
+end
+
+function update(self, dt)
+	-- Add update code here
+	-- Remove this function if not needed
+end
+
+function on_message(self, message_id, message, sender)
+	-- Add message-handling code here
+	-- Remove this function if not needed
+	if message_id== game.PROXY_LOADED then
+		msg.post(sender,"enable")
+		print("PROXY_LOADED",sender)
+	elseif message_id==game.CLOSESETTINGS then
+	--	go.delete("/gogui",true)
+		--self.go_ids=nil
+		--collectionfactory.unload("/go#languagefactory")
+		msg.post("/go#languageproxy", "unload")
+		labelsUpdate(self)
+		self.lang=true
+		si.acquire()
+	elseif message_id==game.IAPRESTORED then
+		print("Settings: game.IAPRESTORED:", message.id)
+		if message.id==game.removeads.id then
+			game.adsremoved=true
+			game.saveFile()
+			ga.get_default_tracker().event("session", "restored", message.id, 0)
+		end
+		self.restored=true
+		gui.set_enabled(gui.get_node("restore/label"), true)
+		gui.set_text(gui.get_node("restore/label"), txt.get.restored)
+	end
+end
+
+
+function on_input(self, action_id, action)
+		si.on_input(action_id, action,self)
+		if action_id==game.BACK and action.released then
+				print("Exit from settings")
+				onexit(self)
+		end
+		if action_id==game.TOUCH and action.pressed then
+			if gui.pick_node(self.getit, action.x, action.y) then game.clickOnPage() end
+		end
+
+		--self.checkbox_value = dirtylarry:checkbox("tutorial", action_id, action, self.checkbox_value)
+
+end
+
+function on_reload(self)
+	-- Add input-handling code here
+	-- Remove this function if not needed
+end

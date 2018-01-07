@@ -1,0 +1,59 @@
+[project]
+title = DefPlayfab
+custom_resources = 
+version = 0.1
+dependencies = https://github.com/PlayFab/LuaSdk/raw/master/Defold/PlayFabClientSdk.zip
+
+[bootstrap]
+main_collection = /main/main.collectionc
+render = /helper/fixed_aspect_ratio.renderc
+
+[input]
+game_binding = /input/game.input_bindingc
+gamepads = /builtins/input/default.gamepadsc
+
+[display]
+width = 720
+height = 1024
+
+[physics]
+scale = 0.02
+debug = 0
+max_collisions = 256
+max_contacts = 256
+gravity_y = -100
+
+[android]
+immersive_mode = 1
+
+[sprite]
+max_count = 512
+
+[resource]
+max_resources = 1000
+
+[collection]
+max_instances = 256
+
+[graphics]
+max_debug_vertices = 50000
+texture_profiles = /builtins/graphics/default.texture_profiles
+
+[spine]
+max_count = 16
+
+[iap]
+auto_finish_transactions = 0
+
+[particle_fx]
+max_count = 200
+
+[native_extension]
+app_manifest = /debug_engine.appmanifest
+
+[label]
+max_count = 128
+
+[collection_proxy]
+max_count = 16
+

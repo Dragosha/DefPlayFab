@@ -1,0 +1,203 @@
+local render_helper = require "helper.render_helper"
+local game = require "game.game"
+local si = require "ludobits.m.simple_input"
+local flux = require "helper.flux"
+local lb = require "main.leaderboard.lb"
+local flow = require "ludobits.m.flow"
+local txt = require "main.txt"
+local jsonlib = require "helper.jsonlib"
+--------------------------
+
+local totalcoins={coins=0}
+local tweenstop=false
+
+local proxyToLoad=""
+local mepos
+
+
+
+local function onplay()
+	proxyToLoad="#menuproxy"
+	platformDepends()
+end
+
+local function onexit()
+	proxyToLoad="#menuproxy"
+	platformDepends()
+end
+
+local function onleaderboard()
+	proxyToLoad="#leaderboardproxy"
+	platformDepends()
+end
+
+local function onFailed(error)
+    print("Something went wrong with your first API call.", error.errorMessage)
+    gui.set_text(gui.get_node("name"), "Something went wrong :(\n"..error.errorMessage)
+    --gui.set_text(gui.get_node("loading"), "Something went wrong :(")
+	gui.set_enabled(gui.get_node("loading"),false)
+end
+
+local function onLeaderboardSuccess(result)
+    print("Daily leaderboard:")
+    --pprint(result)
+
+    gui.set_enabled(gui.get_node("loading"),false)
+    local board=result.Leaderboard or {}
+    local nametext=""
+    local scoretext=""
+    for i=1, #board do
+        local dn=board[i].DisplayName or "noname"
+		local pos=tonumber(board[i].Position)+1
+        nametext=nametext..tostring(pos)..". "..dn.."\n"
+        local value=board[i].StatValue
+        scoretext=scoretext..value.."\n"
+
+		if board[i].PlayFabId==lb.PlayFabId then
+			gui.set_position(gui.get_node("me"), vmath.vector3(120, mepos.y-(i-1)*26.3, 0))
+			gui.set_enabled(gui.get_node("me"), true)
+		end
+    end
+    gui.set_text(gui.get_node("name"), nametext)
+    gui.set_text(gui.get_node("score"), scoretext)
+	print(nametext,scoretext)
+end
+
+local function onSendSuccess(result, delay)
+	print("score sent:",game.getCoins())
+	flow.start(function()
+		print("flow.start")
+		flow.delay(delay or 1)
+		print("flow.delay")
+		local aspect=render_helper.window_res.y/(render_helper.window_res.x or 1)
+		local num=6
+		if aspect> 1.3 then
+			num=10
+		elseif aspect>1.7 then
+			num=12
+		end
+		local lbname
+		if game.mode==game.CLASSIC then
+			lbname="daily"
+		elseif game.mode==game.FOURxFOUR then
+			lbname="four"
+		 end
+		lb.getLeaderboardAroundPlayer(lbname, onLeaderboardSuccess, onFailed, num)
+	end)
+end
+
+local function onChange(self)
+    game.loadProxy("#nicknameproxy")
+end
+
+local function onAndroidShare(self)
+	if share then
+		ga.get_default_tracker().event("share", "Android", "game-over", game.getCoins())
+		share.text(string.format(txt.get.share_text,game.getCoins(),game.gameurl))
+	end
+end
+
+local function onWebShare(self)
+	local str="share('"..string.format(txt.get.share_text,game.getCoins(),"") .."')"
+	print(str)
+	html5.run(str)
+end
+
+function init(self)
+	--msg.post(".", "acquire_input_focus")
+	si.acquire()
+	si.register("play", onplay)
+	--si.register("exit", onexit)
+	gui.set_enabled(gui.get_node("exitbox"), false)
+
+	mepos=gui.get_position(gui.get_node("me"))
+	si.register("leaderboard",onleaderboard)
+	print("Gameover Gui_script Init")
+	self.coinsNode=gui.get_node("coins")
+	self.bestNode=gui.get_node("best")
+	totalcoins.coins=game.hashc
+	flux.to(totalcoins,1,{coins=game.totalcoins}):ease("quadout"):oncomplete(function()
+		 tweenstop=true
+		 gui.set_text(gui.get_node("coins"), game.getCoins())
+		 gui.animate(gui.get_node("coins"), gui.PROP_SCALE, 1.5, gui.EASING_OUTCUBIC, .3, 0, nil, gui.PLAYBACK_ONCE_PINGPONG)
+	 end)
+	gui.set_text(self.coinsNode, "0")
+
+
+	local best=false
+	if game.bestscore<=game.getCoins() then
+		game.bestscore=game.getCoins()
+		-- save user data to PlayFab
+		lb.sigIn(
+			function()
+				local save=jsonlib.encode(game.rec)
+				lb.updateUserData({bestrec=save},
+					function() print("Update successfully") end,
+					function(error) print(error.errorMessage) end)
+			end,
+			function(error) print(error.errorMessage) end
+		)
+		best=true
+	end
+	gui.set_text(self.bestNode, game.bestscore)
+
+	-- send Score to Playfab leaderboard.
+	lb.sigIn(
+		function()
+				lb.sendScore(game.getCoins(),
+					onSendSuccess,
+					function(error) print(error.errorMessage) end,
+					game.classes[game.currentClass].skin
+				)
+		end,
+		function(error) print(error.errorMessage) end
+	)
+
+	
+	------- share
+	self.shareNode=gui.get_node("share")
+	local info = sys.get_sys_info()
+	if info.system_name == "Android" then
+	--- ANDROID
+		gui.set_enabled(gui.get_node("sharebox"), true)
+		si.register("share", onAndroidShare)
+	elseif info.system_name == "HTML5" then
+	--- HTML5
+		gui.set_enabled(gui.get_node("sharebox"), true)
+		si.register("share",function() ga.get_default_tracker().event("share", "HTML5", "game-over", game.getCoins()) end)
+	else
+		gui.set_enabled(gui.get_node("sharebox"), false)
+	end
+end
+
+function final(self)
+	si.release()
+	si.unregister()
+	flow.stop()
+end
+
+function update(self, dt)
+	-- Add update code here
+	-- Remove this function if not needed
+	--ga.update()
+	flow.update(dt)
+	flux.update(dt)
+	if not tweenstop then
+		gui.set_text(self.coinsNode, math.ceil(totalcoins.coins-game.hashc))
+	end
+end
+
+function on_message(self, message_id, message, sender)
+	flow.on_message(message_id, message, sender)
+	if message_id==game.RESIZE then
+		onSendSuccess(nil,0.05)
+	end
+end
+
+function on_input(self, action_id, action)
+	si.on_input(action_id, action)
+	if html5 and action_id==game.TOUCH and action.pressed then
+    	if gui.pick_node(self.shareNode, action.x, action.y) then onWebShare() end
+	end
+end
+

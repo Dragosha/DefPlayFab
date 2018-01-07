@@ -1,0 +1,45 @@
+local game=require "game.game"
+local render_helper = require "helper.render_helper"
+local lb = require "main.leaderboard.lb"
+local fb = require "main.fb.fb"
+
+function init(self)
+
+	msg.post(".","acquire_input_focus")
+	render_helper.fpsInit()
+	--
+	game.loadFile()
+	--
+	if lb.uid=="" or lb.uid==nil then
+		lb.uid=lb.uuid()
+		print("UID=",lb.uid)
+		---- save uid
+		game.saveFile()
+		---
+		--game.firsttime=true
+	end
+
+	print("Nickname=",lb.nickname)
+
+	----------------------
+	lb.sigIn(
+	function(result)
+		print("signIn with id:", lb.PlayFabId)
+	end,
+	 function(error)
+		 print("initial signIn error:", error.errorMessage)
+	 end)
+	------------------
+end
+
+function final(self)
+	msg.post(".","release_input_focus")
+	print("bye-bye!")
+end
+
+
+function on_message(self, message_id, message, sender)
+end
+
+function update(self, dt)
+end

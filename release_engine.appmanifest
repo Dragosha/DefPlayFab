@@ -1,0 +1,26 @@
+# Release + Record + Profiler
+platforms:
+
+    js-web:
+        context:
+            excludeLibs: ["BulletDynamics", "BulletCollision", "LinearMath", "Box2D", "physics", "record", "vpx", "engine", "profilerext"]
+            excludeSymbols: ["ProfilerExt"]
+            libs: ["engine_release", "physics_null", "record_null"]
+
+    armv7-android:
+        context:
+            excludeLibs: ["BulletDynamics", "BulletCollision", "LinearMath", "Box2D", "physics", "record", "vpx", "engine", "profilerext"]
+            excludeSymbols: ["ProfilerExt"]
+            libs: ["engine_release", "physics_null", "record_null"]
+
+    armv7-ios:
+        context:
+            excludeLibs: ["BulletDynamics", "BulletCollision", "LinearMath", "Box2D", "physics", "record", "vpx", "engine", "profilerext"]
+            excludeSymbols: ["ProfilerExt"]
+            libs: ["engine_release", "physics_null", "record_null"]
+
+    arm64-ios:
+        context:
+            excludeLibs: ["BulletDynamics", "BulletCollision", "LinearMath", "Box2D", "physics", "record", "vpx", "engine", "profilerext"]
+            excludeSymbols: ["ProfilerExt"]
+            libs: ["engine_release", "physics_null", "record_null"]

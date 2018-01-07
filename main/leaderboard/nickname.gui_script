@@ -1,0 +1,199 @@
+local game = require "game.game"
+local dirtylarry = require "dirtylarry.dirtylarry"
+local si = require "ludobits.m.simple_input"
+local lb = require "main.leaderboard.lb"
+local ga = require "googleanalytics.ga"
+local fb = require "main.fb.fb"
+local txt = require "main.txt"
+
+local function onexit()
+    print("onexit()")
+    --checkNickname(self.nickname)
+	game.loadProxy("#leaderboardproxy")
+end
+
+local function checkNickname(nickname)
+    if nickname and nickname~="" and hash(nickname or "") ~= hash(lb.DisplayName or "") then
+        --msg.post(game.CONTROLLER, game.CHANGENICKNAME, {nickname=nickname})
+        print("checkNickname", nickname, hash(nickname))
+        lb.changeName(nickname,function(result)
+            ---- save
+            if not game.nicknameBonus then
+                game.nicknameBonus=true
+                game.savedCoins=game.savedCoins+2000
+            end
+            game.saveFile()
+            onexit()
+        end,function(error)
+            onexit()
+        end)
+        return true
+    end
+    return false
+end
+
+local function onOk(self)
+    if not checkNickname(self.nickname) then
+        game.loadProxy("#leaderboardproxy")
+    else
+        gui.set_enabled(gui.get_node("ok"), false)
+        self.timer=3
+	end
+end
+
+
+local function updateText(self)
+    gui.set_text(self.title, self.nickname)
+end
+
+
+local abc1={"a","b","c","d","e","f","g","h","i","j","k","l","m","n","o","p","q","r","s","t","u","v","w","x","y","z"}
+local abc2={"1","2","3","4","5","6","7","8","9","0",".",",",";",":","-","_","(",")","<",">","?","*","!","^","&","$"}
+local abc=abc1
+
+local function onShift(value)
+    for i=1,#abc do
+        local node_label = gui.get_node(abc1[i] .. "/larrylabel")
+        local char=abc[i]
+        if value then char=string.upper(char) end
+        gui.set_text(node_label, char)
+    end
+end
+
+local function FB_callback(self, result, name)
+	if result then
+		print("FB name:", name)
+        self.nickname=name
+        gui.set_text(self.title, self.nickname)
+        local m_t=gui.get_text_metrics_from_node(self.title)
+        gui.set_position(self.node_cursor, vmath.vector3(self.curpos.x + 3+ m_t.width, self.curpos.y, 0))
+
+	end
+end
+
+local function onFb(self)
+    if facebook and facebook.access_token() then
+        fb.getName(self, FB_callback)
+    else
+        --game.clickOnPage()
+	    fb.login(self, FB_callback)
+    end
+end
+
+function init(self)
+    ga.get_default_tracker().screenview("nickname")
+    si.acquire()
+    --si.register("exit", onexit)
+    si.register("ok", onOk)
+
+    --si.register("fb/button", function()end)
+	gui.set_enabled(gui.get_node("fb/button"), false)
+
+
+    self.title=gui.get_node("title")
+    self.nickname=lb.nickname
+    gui.set_text(self.title, self.nickname)
+    self.shift=false
+    self.chars=false
+    onShift(self.shift)
+
+    self.node_cursor = gui.get_node("cursor")
+    gui.animate(self.node_cursor, "size", vmath.vector3(4, 40, 0), gui.EASING_OUTCUBIC, 0.5, 0, nil, gui.PLAYBACK_LOOP_PINGPONG)
+    -- get text metrics for both raw input data and marked text
+    local m_t=gui.get_text_metrics_from_node(self.title)
+    self.curpos=gui.get_position(self.node_cursor)
+    gui.set_position(self.node_cursor, vmath.vector3(self.curpos.x + m_t.width, self.curpos.y, 0))
+
+    gui.set_text(gui.get_node("yourare"), txt.get.youare)
+    gui.set_text(gui.get_node("A"), txt.get.ok)
+end
+
+
+function final(self)
+    si.release()
+    si.unregister()
+end
+
+function update(self, dt)
+	-- Add update code here
+	-- Remove this function if not needed
+    if self.timer then
+        --print(self.timer)
+        self.timer=self.timer-dt
+        if self.timer<0 then
+            onexit()
+            self.timer=nil
+        end
+    end
+end
+
+function on_message(self, message_id, message, sender)
+	-- Add message-handling code here
+	-- Remove this function if not needed
+end
+
+
+
+
+
+function on_input(self, action_id, action)
+	si.on_input(action_id, action,self)
+    if action_id==game.BACK and action.released then
+        onexit()
+    end
+
+    --[[if action_id==game.TOUCH and action.pressed then
+        if gui.pick_node(gui.get_node("fb/button"), action.x, action.y) then
+            onFb(self)
+        end
+    end]]--
+
+    local node_bg =gui.get_node("shift/larrybutton")
+    dirtylarry:hit(node_bg, action_id, action, function()
+
+        self.shift = not self.shift
+        onShift(self.shift)
+        local flipbook = "button_" .. (self.shift and "pressed" or "normal")
+        gui.play_flipbook(node_bg, flipbook)
+    end)
+
+    local node_bg2 =gui.get_node("chars/larrybutton")
+    dirtylarry:hit(node_bg2, action_id, action, function()
+
+        local node_label =gui.get_node("chars/larrylabel")
+        self.chars = not self.chars
+        if self.chars then
+            abc=abc2
+            gui.set_text(node_label, "abc")
+        else
+            abc=abc1
+            gui.set_text(node_label, "123")
+        end
+        onShift(self.shift)
+        local flipbook = "button_" .. (self.shift and "pressed" or "normal")
+        gui.play_flipbook(node_bg, flipbook)
+    end)
+
+
+    for i=1,#abc do
+        dirtylarry:button(abc1[i], action_id, action, function ()
+            local char=abc[i]
+            if self.shift then char=string.upper(char) end
+            if #self.nickname<26 then self.nickname=self.nickname..char end
+            updateText(self)
+        end)
+    end
+--string.upper(s)
+    dirtylarry:button("backspace", action_id, action, function ()
+        if #self.nickname>0 then self.nickname = string.sub(self.nickname, 1, string.len(self.nickname)-1) end
+        updateText(self)
+    end)
+    --
+    local m_t=gui.get_text_metrics_from_node(self.title)
+    gui.set_position(self.node_cursor, vmath.vector3(self.curpos.x + 3+ m_t.width, self.curpos.y, 0))
+end
+
+function on_reload(self)
+	-- Add input-handling code here
+	-- Remove this function if not needed
+end

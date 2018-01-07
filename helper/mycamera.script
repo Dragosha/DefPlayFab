@@ -1,0 +1,75 @@
+local render_helper = require "helper.render_helper"
+local game = require "game.game"
+local campos = vmath.vector3()
+local ag_window = require "helper.window"
+
+-- master camera settings - these are sent to the camera and transform module
+local nearz = 1
+local farz = 3000
+local initial_z = 720
+
+function init(self)
+	msg.post("#camera", "acquire_camera_focus")
+	initial_z=game.deep*240
+	campos=go.get_position()
+	campos.z=initial_z
+	go.set_position(campos)
+	game.camera_pos=campos
+	msg.post("#camera", "set_camera", {aspect_ratio = 1.0, fov = 45, near_z = nearz, far_z = farz})
+	render_helper.set_camera(campos, nearz, farz)
+	--print("camera activated")
+--go.animate("hero","euler.y",go.PLAYBACK_LOOP_PINGPONG,360,go.EASING_LINEAR,5,10)
+--go.animate(".", "position.z", go.PLAYBACK_LOOP_PINGPONG, 800, go.EASING_OUTBOUNCE, 2)
+	--window.set_listener(windowevent)
+	ag_window.add_resize_listener(msg.url())
+	ag_window.add_focus_listener(msg.url())
+	windowResize(self, {width=render_helper.window_res.x,height=render_helper.window_res.y})
+	render_helper.cameraOrthographic(false)
+	render_helper.clear_color=vmath.vector4(14/255, 22/255, 24/255, 0)
+end
+
+function final(self)
+	ag_window.remove_resize_listener(msg.url())
+	ag_window.remove_focus_listener(msg.url())
+	msg.post("#camera", "release_camera_focus")
+end
+
+--########################################  Window Event  ########################################
+function windowResize(self, data)
+		msg.post("gui#gui", game.RESIZE, {width=data.width, height=data.height})
+		msg.post("#camera", "set_camera", {aspect_ratio = data.width/data.height, fov = 45, near_z = nearz, far_z = farz})
+
+		initial_z=game.deep*240
+		local z
+		if data.width*1.2<data.height then
+			z=initial_z*math.max(1,(data.height/data.width)*.88)
+		else
+			z=initial_z*1.1
+		end
+		if campos.z~=z then
+			campos.z=z
+			go.animate(".", "position.z", go.PLAYBACK_ONCE_FORWARD, campos.z, go.EASING_INOUTQUAD, .3, 0)
+		else
+			campos.z=z
+			go.set_position(campos)
+		end
+		render_helper.set_camera(campos, nearz, farz)
+		game.camera_pos=campos
+		--print("Window resized: ", data.width, data.height, " z=",campos.z)
+end
+
+function on_message(self, message_id, message, sender)
+	if message_id == ag_window.RESIZED then
+		windowResize(self,message)
+	elseif message_id == game.ZOOMOUT then
+		go.animate(".", "position.z", go.PLAYBACK_ONCE_FORWARD, campos.z+50, go.EASING_INBACK, .9, 0, function()
+			msg.post("#camera", "release_camera_focus")
+		end)
+	elseif message_id == ag_window.FOCUS_LOST then
+		print("focus lost on mycamera")
+		msg.post("/board#script", ag_window.FOCUS_LOST)
+	elseif message_id == ag_window.FOCUS_GAINED then
+		print("focus gained")
+		render_helper.fpsInit()
+	end
+end
